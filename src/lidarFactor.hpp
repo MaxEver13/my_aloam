@@ -24,17 +24,22 @@ struct LidarEdgeFactor
 		Eigen::Matrix<T, 3, 1> lpb{T(last_point_b.x()), T(last_point_b.y()), T(last_point_b.z())};
 
 		//Eigen::Quaternion<T> q_last_curr{q[3], T(s) * q[0], T(s) * q[1], T(s) * q[2]};
+		// 当前帧相对上一帧的转换，插值计算
 		Eigen::Quaternion<T> q_last_curr{q[3], q[0], q[1], q[2]};
 		Eigen::Quaternion<T> q_identity{T(1), T(0), T(0), T(0)};
 		q_last_curr = q_identity.slerp(T(s), q_last_curr);
 		Eigen::Matrix<T, 3, 1> t_last_curr{T(s) * t[0], T(s) * t[1], T(s) * t[2]};
 
+		// 将当前帧的边线点转换到上一帧边线点云
 		Eigen::Matrix<T, 3, 1> lp;
 		lp = q_last_curr * cp + t_last_curr;
-
+		
+		// 此时lp应该在边线ab上，利用几何知识，lp到lpa与lpb边线的距离应该为０
+		// 参考链接：https://zhuanlan.zhihu.com/p/111388877
+		// 4.1节
 		Eigen::Matrix<T, 3, 1> nu = (lp - lpa).cross(lp - lpb);
 		Eigen::Matrix<T, 3, 1> de = lpa - lpb;
-
+		// 这里的residual是三维的，但是论文中的残差是一维的，residual[0] = nu.norm() / de.norm();
 		residual[0] = nu.x() / de.norm();
 		residual[1] = nu.y() / de.norm();
 		residual[2] = nu.z() / de.norm();
@@ -61,6 +66,7 @@ struct LidarPlaneFactor
 		: curr_point(curr_point_), last_point_j(last_point_j_), last_point_l(last_point_l_),
 		  last_point_m(last_point_m_), s(s_)
 	{
+		// 平面ljm的垂直方向的方向向量
 		ljm_norm = (last_point_j - last_point_l).cross(last_point_j - last_point_m);
 		ljm_norm.normalize();
 	}
@@ -76,13 +82,19 @@ struct LidarPlaneFactor
 		Eigen::Matrix<T, 3, 1> ljm{T(ljm_norm.x()), T(ljm_norm.y()), T(ljm_norm.z())};
 
 		//Eigen::Quaternion<T> q_last_curr{q[3], T(s) * q[0], T(s) * q[1], T(s) * q[2]};
+		// 当前帧相对上一帧的转换，插值计算
 		Eigen::Quaternion<T> q_last_curr{q[3], q[0], q[1], q[2]};
 		Eigen::Quaternion<T> q_identity{T(1), T(0), T(0), T(0)};
 		q_last_curr = q_identity.slerp(T(s), q_last_curr);
 		Eigen::Matrix<T, 3, 1> t_last_curr{T(s) * t[0], T(s) * t[1], T(s) * t[2]};
 
+		// 将当前雷达点转换到上一帧平面点云，lp应该位于平面上，即lp到由j,l,m三点组成的平面距离为0
 		Eigen::Matrix<T, 3, 1> lp;
 		lp = q_last_curr * cp + t_last_curr;
+
+		// 参考链接：https://zhuanlan.zhihu.com/p/111388877 4.２节
+		// 点到平面的距离为
+		// 向量(lp-lpj)在向量ljm上的投影
 
 		residual[0] = (lp - lpj).dot(ljm);
 
@@ -120,6 +132,8 @@ struct LidarPlaneNormFactor
 		point_w = q_w_curr * cp + t_w_curr;
 
 		Eigen::Matrix<T, 3, 1> norm(T(plane_unit_norm.x()), T(plane_unit_norm.y()), T(plane_unit_norm.z()));
+		// 点(x0, y0, z0)到平面Ax + By + Cz + D = 0 的距离 = fabs(A*x0 + B*y0 + C*z0 + D) / sqrt(A^2 + B^2 + C^2)
+		// 因为法向量（A, B, C）已经归一化了，所以距离公式可以简写为：距离 = fabs(A*x0 + B*y0 + C*z0 + D)
 		residual[0] = norm.dot(point_w) + T(negative_OA_dot_norm);
 		return true;
 	}
